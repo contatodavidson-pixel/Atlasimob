@@ -44,7 +44,7 @@ async function runDailyScraping() {
           bathrooms: prop.bathrooms,
           propertyType: prop.propertyType,
           description: prop.description,
-          imageUrls: prop.imageUrls,
+          imageUrls: Array.isArray(prop.imageUrls) ? JSON.stringify(prop.imageUrls) : (prop.imageUrls ?? '[]'),
           listingUrl: prop.listingUrl,
           priceReduced: prop.priceReduced,
           priceReducedBy: prop.priceReducedBy,
@@ -119,7 +119,12 @@ async function sendMorningAlert() {
   if (!newProperties.length) return;
 
   const users = await prisma.user.findMany({ where: { role: 'ADMIN' } });
-  const emailHtml = buildDailyAlertEmail(newProperties);
+  const emailHtml = buildDailyAlertEmail(newProperties.map(p => ({
+    ...p,
+    grossYield: p.grossYield ?? undefined,
+    cashflow: p.cashflow ?? undefined,
+    tag: p.tag ?? undefined,
+  })));
 
   for (const user of users) {
     await sendEmail({
@@ -215,7 +220,7 @@ async function sendWeeklyReport() {
     data: {
       type: 'WEEKLY',
       period: weekAgo.toISOString().split('T')[0],
-      data: { total, tagMap, priceReduced, reportText },
+      data: JSON.stringify({ total, tagMap, priceReduced, reportText }),
       sentAt: new Date(),
     },
   });

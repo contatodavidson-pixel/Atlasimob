@@ -143,7 +143,7 @@ propertiesRouter.post('/scrape', async (req: AuthRequest, res) => {
             bathrooms: prop.bathrooms,
             propertyType: prop.propertyType,
             description: prop.description,
-            imageUrls: prop.imageUrls,
+            imageUrls: Array.isArray(prop.imageUrls) ? JSON.stringify(prop.imageUrls) : (prop.imageUrls ?? '[]'),
             listingUrl: prop.listingUrl,
             priceReduced: prop.priceReduced,
             priceReducedBy: prop.priceReducedBy,

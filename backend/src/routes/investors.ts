@@ -123,8 +123,9 @@ investorsRouter.post('/match-all', async (_req, res) => {
         for (const property of strongDeals) {
           const priceMatch = !investor.maxBudget || property.price <= investor.maxBudget;
           const yieldMatch = !investor.minYield || (property.grossYield || 0) >= investor.minYield;
-          const areaMatch = !investor.preferredAreas?.length ||
-            investor.preferredAreas.some(a => property.area.toLowerCase().includes(a.toLowerCase()));
+          const preferredAreasList: string[] = JSON.parse(investor.preferredAreas || '[]');
+          const areaMatch = !preferredAreasList.length ||
+            preferredAreasList.some((a: string) => property.area.toLowerCase().includes(a.toLowerCase()));
 
           if (priceMatch && yieldMatch && areaMatch) {
             const score = ((property.grossYield || 0) * 0.4) +
