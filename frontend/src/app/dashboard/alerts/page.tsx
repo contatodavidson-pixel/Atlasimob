@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { alertsApi } from '@/lib/api';
-import { Bell, Plus, Trash2, Toggle } from 'lucide-react';
+import { Bell, Plus, Trash2, ToggleLeft } from 'lucide-react';
 
 export default function AlertsPage() {
   const qc = useQueryClient();
