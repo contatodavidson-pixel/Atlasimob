@@ -67,8 +67,10 @@ app.get('/health', (_req, res) => {
 app.listen(PORT, async () => {
   logger.info(`Servidor rodando na porta ${PORT}`);
   schedulerService.start();
-  await whatsappService.launch();
-  logger.info('Agendamentos e WhatsApp iniciados');
+  whatsappService.launch().catch(err => {
+    logger.warn('WhatsApp service não iniciado (não crítico):', err?.message);
+  });
+  logger.info('Servidor iniciado com sucesso');
 });
 
 export default app;
