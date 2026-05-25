@@ -1,9 +1,75 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
 import { analyzeProperty } from '../services/claude';
+import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 
 export const analysisRouter = Router();
 analysisRouter.use(authenticate);
+
+// Analisar todos os imóveis pendentes em batch
+analysisRouter.post('/batch', async (req, res) => {
+  const limit = Number(req.query.limit ?? 10);
+
+  const pending = await prisma.property.findMany({
+    where: { analysisStatus: 'PENDING' },
+    take: limit,
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!pending.length) {
+    return res.json({ message: 'Nenhum imóvel pendente para análise', total: 0 });
+  }
+
+  res.json({ message: `Analisando ${pending.length} imóveis em background...`, total: pending.length });
+
+  (async () => {
+    let success = 0;
+    for (const property of pending) {
+      try {
+        await prisma.property.update({ where: { id: property.id }, data: { analysisStatus: 'ANALYZING' } });
+        const analysis = await analyzeProperty({
+          title: property.title,
+          address: property.address,
+          area: property.area,
+          price: property.price,
+          bedrooms: property.bedrooms,
+          bathrooms: property.bathrooms ?? undefined,
+          propertyType: property.propertyType,
+          description: property.description ?? undefined,
+        });
+        await prisma.property.update({
+          where: { id: property.id },
+          data: {
+            analysisStatus: 'COMPLETED',
+            tag: analysis.tag,
+            score: analysis.score,
+            grossYield: analysis.grossYield,
+            netYield: analysis.netYield,
+            cashflow: analysis.cashflow,
+            roi: analysis.roi,
+            estimatedRent: analysis.estimatedRent,
+            managementFee: analysis.managementFee,
+            maintenanceCost: analysis.maintenanceCost,
+            insuranceCost: analysis.insuranceCost,
+            mortgagePayment: analysis.mortgagePayment,
+            motivatedSeller: analysis.motivatedSeller,
+            belowMarketPct: analysis.belowMarketPct,
+            liquidityIndex: analysis.liquidityIndex,
+            aiAnalysis: analysis.aiAnalysis,
+            aiSummary: analysis.aiSummary,
+          },
+        });
+        success++;
+        logger.info(`Análise batch: ${success}/${pending.length} — ${property.address}`);
+      } catch (err) {
+        await prisma.property.update({ where: { id: property.id }, data: { analysisStatus: 'FAILED' } });
+        logger.error(`Erro ao analisar ${property.id}`, err);
+      }
+    }
+    logger.info(`Batch concluído: ${success}/${pending.length} imóveis analisados`);
+  })();
+});
 
 // Análise rápida de imóvel por URL ou dados manuais
 analysisRouter.post('/quick', async (req, res) => {
