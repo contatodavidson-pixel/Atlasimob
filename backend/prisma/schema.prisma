@@ -1,0 +1,203 @@
+// Atlas — Schema Prisma
+// Desenvolvimento: SQLite (DATABASE_URL="file:./dev.db")
+// Produção: PostgreSQL (DATABASE_URL="postgresql://...")
+//
+// Para trocar para Postgres:
+//   1. Altere provider para "postgresql"
+//   2. Rode: npx prisma migrate deploy
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = env("DATABASE_PROVIDER")
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String    @id @default(uuid())
+  name                String
+  email               String    @unique
+  password            String
+  role                String    @default("INVESTOR")
+  phone               String?
+  whatsappPhone       String?
+  // Onboarding
+  onboardingCompleted Boolean   @default(false)
+  investorProfile     String    @default("CASUAL")
+  budget              Float?
+  preferredCities     String    @default("[]")
+  preferredTypes      String    @default("[]")
+  minYield            Float?
+  notifyEmail         Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  properties          SavedProperty[]
+  alerts              AlertConfig[]
+}
+
+model Property {
+  id              String    @id @default(uuid())
+  externalId      String    @unique
+  source          String
+  title           String
+  address         String
+  area            String
+  price           Float
+  bedrooms        Int
+  bathrooms       Int?
+  propertyType    String
+  description     String?
+  imageUrls       String    @default("[]")
+  listingUrl      String
+  originalPrice   Float?
+  priceReduced      Boolean   @default(false)
+  priceReducedBy    Float?
+  motivatedSeller   Boolean   @default(false)
+  analysisStatus    String    @default("PENDING")
+  tag             String?
+  grossYield      Float?
+  netYield        Float?
+  cashflow        Float?
+  roi             Float?
+  estimatedRent   Float?
+  managementFee   Float?
+  maintenanceCost Float?
+  insuranceCost   Float?
+  mortgagePayment Float?
+  aiAnalysis      String?
+  aiSummary       String?
+  score           Float?
+  belowMarketPct  Float?
+  daysListed      Int?
+  liquidityIndex  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  savedBy         SavedProperty[]
+  investorMatches InvestorMatch[]
+  priceHistory    PriceHistory[]
+}
+
+model PriceHistory {
+  id          String   @id @default(uuid())
+  propertyId  String
+  price       Float
+  source      String   @default("SCRAPER")
+  createdAt   DateTime @default(now())
+  property    Property @relation(fields: [propertyId], references: [id])
+}
+
+model SavedProperty {
+  id         String   @id @default(uuid())
+  userId     String
+  propertyId String
+  notes      String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([userId, propertyId])
+}
+
+model Investor {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  phone         String?
+  whatsapp      String?
+  source        String?
+  status        String    @default("LEAD")
+  budget        Float?
+  minBudget     Float?
+  maxBudget     Float?
+  preferredAreas String   @default("[]")
+  propertyTypes  String   @default("[]")
+  minYield       Float?
+  notes          String?
+  lastContactAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  emailHistory   EmailHistory[]
+  matches        InvestorMatch[]
+}
+
+model EmailHistory {
+  id          String   @id @default(uuid())
+  investorId  String
+  subject     String
+  body        String
+  direction   String
+  status      String   @default("sent")
+  aiGenerated Boolean  @default(false)
+  sentAt      DateTime @default(now())
+  investor    Investor @relation(fields: [investorId], references: [id])
+}
+
+model InvestorMatch {
+  id          String   @id @default(uuid())
+  investorId  String
+  propertyId  String
+  score       Float
+  notified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  investor    Investor @relation(fields: [investorId], references: [id])
+  property    Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([investorId, propertyId])
+}
+
+model AlertConfig {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  active    Boolean  @default(true)
+  channels  String   @default("[]")
+  filters   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Waitlist {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  city      String?
+  source    String   @default("landing")
+  createdAt DateTime @default(now())
+}
+
+model Report {
+  id        String   @id @default(uuid())
+  type      String
+  period    String
+  data      String
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  platform  String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model RealEstateAgency {
+  id        String   @id @default(uuid())
+  name      String
+  city      String
+  state     String
+  phone     String?
+  email     String?
+  website   String?
+  creci     String?
+  specialty String   @default("Residencial")
+  type      String   @default("Independente")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, city, state])
+}

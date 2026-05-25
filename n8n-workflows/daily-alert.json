@@ -1,0 +1,55 @@
+{
+  "name": "Alerta Diário de Imóveis",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 24, "triggerAtHour": 8 }]
+        }
+      },
+      "name": "Schedule - 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.API_URL}}/api/properties?tag=STRONG_DEAL&limit=10",
+        "options": {
+          "response": { "response": { "neverError": true } }
+        },
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer ={{$env.ADMIN_TOKEN}}" }
+          ]
+        }
+      },
+      "name": "Buscar Melhores Negócios",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.API_URL}}/api/properties/scrape",
+        "method": "POST",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "area", "value": "Manchester" },
+            { "name": "source", "value": "all" }
+          ]
+        },
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer ={{$env.ADMIN_TOKEN}}" }
+          ]
+        }
+      },
+      "name": "Iniciar Scraping",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Schedule - 8h": { "main": [[{ "node": "Buscar Melhores Negócios", "type": "main", "index": 0 }]] },
+    "Buscar Melhores Negócios": { "main": [[{ "node": "Iniciar Scraping", "type": "main", "index": 0 }]] }
+  }
+}

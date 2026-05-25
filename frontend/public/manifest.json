@@ -1,0 +1,32 @@
+{
+  "name": "Atlas — Inteligência Imobiliária",
+  "short_name": "Atlas",
+  "description": "IA que encontra os melhores imóveis para investir no Brasil",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/atlas-logo.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable any" },
+    { "src": "/atlas-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
+  ],
+  "categories": ["finance", "business"],
+  "lang": "pt-BR",
+  "shortcuts": [
+    {
+      "name": "Feed ao Vivo",
+      "short_name": "Feed",
+      "description": "Oportunidades em tempo real",
+      "url": "/dashboard/feed",
+      "icons": [{ "src": "/atlas-logo.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Deal do Dia",
+      "short_name": "Deal",
+      "description": "Melhor imóvel de hoje",
+      "url": "/deal-do-dia",
+      "icons": [{ "src": "/atlas-logo.png", "sizes": "96x96" }]
+    }
+  ]
+}

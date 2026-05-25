@@ -1,0 +1,150 @@
+// Schema para desenvolvimento local com SQLite (zero configuração)
+// Para usar: copie este arquivo sobre schema.prisma antes de rodar npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          String    @default("INVESTOR")
+  phone         String?
+  telegramId    String?
+  whatsappPhone String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  properties    SavedProperty[]
+  alerts        AlertConfig[]
+}
+
+model Property {
+  id              String    @id @default(uuid())
+  externalId      String    @unique
+  source          String
+  title           String
+  address         String
+  area            String
+  price           Float
+  bedrooms        Int
+  bathrooms       Int?
+  propertyType    String
+  description     String?
+  imageUrls       String    @default("[]")
+  listingUrl      String
+  originalPrice   Float?
+  priceReduced    Boolean   @default(false)
+  priceReducedBy  Float?
+  analysisStatus  String    @default("PENDING")
+  tag             String?
+  grossYield      Float?
+  netYield        Float?
+  cashflow        Float?
+  roi             Float?
+  estimatedRent   Float?
+  managementFee   Float?
+  maintenanceCost Float?
+  insuranceCost   Float?
+  mortgagePayment Float?
+  aiAnalysis      String?
+  aiSummary       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  savedBy         SavedProperty[]
+  investorMatches InvestorMatch[]
+}
+
+model SavedProperty {
+  id         String   @id @default(uuid())
+  userId     String
+  propertyId String
+  notes      String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([userId, propertyId])
+}
+
+model Investor {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  phone         String?
+  whatsapp      String?
+  source        String?
+  status        String    @default("LEAD")
+  budget        Float?
+  minBudget     Float?
+  maxBudget     Float?
+  preferredAreas String   @default("[]")
+  propertyTypes  String   @default("[]")
+  minYield       Float?
+  notes          String?
+  lastContactAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  emailHistory   EmailHistory[]
+  matches        InvestorMatch[]
+}
+
+model EmailHistory {
+  id          String   @id @default(uuid())
+  investorId  String
+  subject     String
+  body        String
+  direction   String
+  status      String   @default("sent")
+  aiGenerated Boolean  @default(false)
+  sentAt      DateTime @default(now())
+  investor    Investor @relation(fields: [investorId], references: [id])
+}
+
+model InvestorMatch {
+  id          String   @id @default(uuid())
+  investorId  String
+  propertyId  String
+  score       Float
+  notified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  investor    Investor @relation(fields: [investorId], references: [id])
+  property    Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([investorId, propertyId])
+}
+
+model AlertConfig {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  active    Boolean  @default(true)
+  channels  String   @default("[]")
+  filters   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Report {
+  id        String   @id @default(uuid())
+  type      String
+  period    String
+  data      String
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  platform  String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}
