@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { scrapeZapImoveis, scrapeVivaReal, scrapeOLX } from '../services/apify';
+import { scrapeMLBProperties } from '../services/mlb';
 import { analyzeProperty } from '../services/claude';
 import { logger } from '../lib/logger';
 import { notifier } from '../services/notifier';
@@ -95,29 +95,36 @@ propertiesRouter.get('/:id/price-history', async (req, res) => {
   res.json(history);
 });
 
-// Disparar scraping manual
+// Disparar scraping manual via Mercado Livre
 propertiesRouter.post('/scrape', async (req: AuthRequest, res) => {
-  const { city = 'São Paulo', state = 'SP', minPrice, maxPrice, minBedrooms, source = 'all' } = req.body;
-  res.json({ message: 'Scraping iniciado em background', city, source });
+  const {
+    city = 'São Paulo',
+    state = 'SP',
+    minPrice,
+    maxPrice,
+    minBedrooms,
+    propertyType = 'ALL',
+    limit = 100,
+  } = req.body;
+
+  res.json({ message: `Scraping MLB iniciado para ${city}`, city, source: 'MERCADOLIVRE' });
 
   (async () => {
     try {
-      const scraped = [];
-      if (source === 'all' || source === 'ZAPIMOVEIS') {
-        const zap = await scrapeZapImoveis({ city, state, minPrice, maxPrice, minBedrooms });
-        scraped.push(...zap);
-      }
-      if (source === 'all' || source === 'VIVAREAL') {
-        const vr = await scrapeVivaReal({ city, state, minPrice, maxPrice, minBedrooms });
-        scraped.push(...vr);
-      }
-      if (source === 'OLX') {
-        const olx = await scrapeOLX({ city, minPrice, maxPrice });
-        scraped.push(...olx);
-      }
+      const scraped = await scrapeMLBProperties({
+        city,
+        state,
+        minPrice: minPrice ? Number(minPrice) : undefined,
+        maxPrice: maxPrice ? Number(maxPrice) : undefined,
+        minBedrooms: minBedrooms ? Number(minBedrooms) : undefined,
+        propertyType: propertyType as 'APARTMENT' | 'HOUSE' | 'ALL',
+        limit: Number(limit),
+      });
+
+      let newCount = 0;
+      let updatedCount = 0;
 
       for (const prop of scraped) {
-        // Check existing price before upsert to detect changes
         const existing = await prisma.property.findUnique({
           where: { externalId: prop.externalId },
           select: { id: true, price: true },
@@ -128,41 +135,46 @@ propertiesRouter.post('/scrape', async (req: AuthRequest, res) => {
           update: {
             price: prop.price,
             priceReduced: prop.priceReduced,
-            priceReducedBy: prop.priceReducedBy,
-            originalPrice: prop.originalPrice,
+            priceReducedBy: prop.priceReducedBy ?? null,
+            originalPrice: prop.originalPrice ?? null,
+            title: prop.title,
+            description: prop.description ?? null,
+            imageUrls: JSON.stringify(prop.imageUrls),
           },
           create: {
             externalId: prop.externalId,
-            source: prop.source,
+            source: 'ZAPIMOVEIS', // Campo source reutilizado — identificado pelo externalId "mlb_"
             title: prop.title,
             address: prop.address,
-            area: prop.city,
+            area: prop.area,
             price: prop.price,
-            originalPrice: prop.originalPrice,
+            originalPrice: prop.originalPrice ?? null,
             bedrooms: prop.bedrooms,
-            bathrooms: prop.bathrooms,
+            bathrooms: prop.bathrooms ?? null,
             propertyType: prop.propertyType,
-            description: prop.description,
-            imageUrls: Array.isArray(prop.imageUrls) ? JSON.stringify(prop.imageUrls) : (prop.imageUrls ?? '[]'),
+            description: prop.description ?? null,
+            imageUrls: JSON.stringify(prop.imageUrls),
             listingUrl: prop.listingUrl,
             priceReduced: prop.priceReduced,
-            priceReducedBy: prop.priceReducedBy,
+            priceReducedBy: prop.priceReducedBy ?? null,
             analysisStatus: 'PENDING',
           },
         });
 
-        // Record price history: on first creation OR when price changes
         const isNew = !existing;
         const priceChanged = existing && existing.price !== prop.price;
         if (isNew || priceChanged) {
           await prisma.priceHistory.create({
-            data: { propertyId: upserted.id, price: prop.price, source: prop.source },
+            data: { propertyId: upserted.id, price: prop.price, source: 'MERCADOLIVRE' },
           });
         }
+
+        if (isNew) newCount++; else updatedCount++;
       }
-      logger.info(`Scraping concluído: ${scraped.length} imóveis salvos`);
+
+      logger.info(`Scraping MLB ${city}: ${newCount} novos + ${updatedCount} atualizados`);
     } catch (err) {
-      logger.error('Erro no scraping', err);
+      logger.error('Erro no scraping MLB', err);
     }
   })();
 });

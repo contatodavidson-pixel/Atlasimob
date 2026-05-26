@@ -1,59 +1,85 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
-import { scrapeZapImoveis, scrapeVivaReal } from './apify';
+import { scrapeMLBProperties, DEFAULT_MLB_CITIES } from './mlb';
 import { analyzeProperty, generateWeeklyReport } from './claude';
 import { sendEmail, buildDailyAlertEmail, buildWeeklyReportEmail } from './email';
 import { whatsappService } from './whatsapp';
 import { logger } from '../lib/logger';
 
-const DEFAULT_CITIES = [
-  { city: 'São Paulo', state: 'SP' },
-  { city: 'Rio de Janeiro', state: 'RJ' },
-  { city: 'Curitiba', state: 'PR' },
-  { city: 'Belo Horizonte', state: 'MG' },
-  { city: 'Florianópolis', state: 'SC' },
-  { city: 'Porto Alegre', state: 'RS' },
-];
+async function upsertProperty(prop: Awaited<ReturnType<typeof scrapeMLBProperties>>[0]) {
+  const existing = await prisma.property.findUnique({
+    where: { externalId: prop.externalId },
+    select: { id: true, price: true },
+  });
+
+  const upserted = await prisma.property.upsert({
+    where: { externalId: prop.externalId },
+    update: {
+      price: prop.price,
+      priceReduced: prop.priceReduced,
+      priceReducedBy: prop.priceReducedBy ?? null,
+      originalPrice: prop.originalPrice ?? null,
+      // Atualiza título e descrição se mudaram
+      title: prop.title,
+      description: prop.description ?? null,
+      imageUrls: JSON.stringify(prop.imageUrls),
+    },
+    create: {
+      externalId: prop.externalId,
+      source: prop.source,
+      title: prop.title,
+      address: prop.address,
+      area: prop.area,
+      price: prop.price,
+      originalPrice: prop.originalPrice ?? null,
+      bedrooms: prop.bedrooms,
+      bathrooms: prop.bathrooms ?? null,
+      propertyType: prop.propertyType,
+      description: prop.description ?? null,
+      imageUrls: JSON.stringify(prop.imageUrls),
+      listingUrl: prop.listingUrl,
+      priceReduced: prop.priceReduced,
+      priceReducedBy: prop.priceReducedBy ?? null,
+      analysisStatus: 'PENDING',
+    },
+  });
+
+  // Registra histórico de preço na criação ou quando preço muda
+  const isNew = !existing;
+  const priceChanged = existing && existing.price !== prop.price;
+  if (isNew || priceChanged) {
+    await prisma.priceHistory.create({
+      data: { propertyId: upserted.id, price: prop.price, source: prop.source },
+    });
+  }
+
+  return { upserted, isNew };
+}
 
 async function runDailyScraping() {
-  logger.info('Iniciando scraping diário — portais brasileiros');
-  for (const loc of DEFAULT_CITIES) {
-    const [zap, vr] = await Promise.all([
-      scrapeZapImoveis({ city: loc.city, state: loc.state }),
-      scrapeVivaReal({ city: loc.city, state: loc.state }),
-    ]);
+  logger.info('Iniciando scraping diário — Mercado Livre Imóveis');
+  let totalNew = 0;
+  let totalUpdated = 0;
 
-    for (const prop of [...zap, ...vr]) {
-      await prisma.property.upsert({
-        where: { externalId: prop.externalId },
-        update: {
-          price: prop.price,
-          priceReduced: prop.priceReduced,
-          priceReducedBy: prop.priceReducedBy,
-          originalPrice: prop.originalPrice,
-        },
-        create: {
-          externalId: prop.externalId,
-          source: prop.source,
-          title: prop.title,
-          address: prop.address,
-          area: prop.city,
-          price: prop.price,
-          originalPrice: prop.originalPrice,
-          bedrooms: prop.bedrooms,
-          bathrooms: prop.bathrooms,
-          propertyType: prop.propertyType,
-          description: prop.description,
-          imageUrls: Array.isArray(prop.imageUrls) ? JSON.stringify(prop.imageUrls) : (prop.imageUrls ?? '[]'),
-          listingUrl: prop.listingUrl,
-          priceReduced: prop.priceReduced,
-          priceReducedBy: prop.priceReducedBy,
-          analysisStatus: 'PENDING',
-        },
-      });
+  for (const cityFilter of DEFAULT_MLB_CITIES) {
+    try {
+      const props = await scrapeMLBProperties(cityFilter);
+
+      for (const prop of props) {
+        const { isNew } = await upsertProperty(prop);
+        if (isNew) totalNew++; else totalUpdated++;
+      }
+
+      logger.info(`MLB ${cityFilter.city}: ${props.length} imóveis (${totalNew} novos, ${totalUpdated} atualizados)`);
+
+      // Pausa entre cidades para não sobrecarregar a API
+      await new Promise(r => setTimeout(r, 1000));
+    } catch (err) {
+      logger.error(`Erro scraping ${cityFilter.city}`, err);
     }
-    logger.info(`Scraping concluído para ${loc.city}: ${zap.length + vr.length} imóveis`);
   }
+
+  logger.info(`Scraping concluído: ${totalNew} novos + ${totalUpdated} atualizados`);
 }
 
 async function analyzeNewProperties() {
@@ -65,10 +91,12 @@ async function analyzeNewProperties() {
   for (const prop of pending) {
     try {
       await prisma.property.update({ where: { id: prop.id }, data: { analysisStatus: 'ANALYZING' } });
+      const cityFromAddress = prop.address.split(',').slice(-2).join(',').trim();
       const analysis = await analyzeProperty({
         title: prop.title,
         address: prop.address,
         area: prop.area,
+        city: cityFromAddress || prop.area,
         price: prop.price,
         bedrooms: prop.bedrooms,
         bathrooms: prop.bathrooms ?? undefined,
@@ -247,6 +275,6 @@ export const schedulerService = {
     cron.schedule('0 * * * *', () => analyzeNewProperties().catch(logger.error));
     cron.schedule('0 8 * * 1', () => sendWeeklyReport().catch(logger.error));
 
-    logger.info('Agendamentos: 7h scraping ZAP+VivaReal, 8h alerta WhatsApp+email, 12h reduções, segunda relatório');
+    logger.info('Agendamentos: 7h scraping MLB (10 cidades), 8h alerta, 12h reduções, 1h/1h análise, segunda relatório');
   },
 };
