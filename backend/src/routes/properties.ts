@@ -95,6 +95,57 @@ propertiesRouter.get('/:id/price-history', async (req, res) => {
   res.json(history);
 });
 
+// Debug: testa a API do MLB diretamente e retorna resposta bruta
+propertiesRouter.post('/scrape/debug', async (req: AuthRequest, res) => {
+  try {
+    const axios = (await import('axios')).default;
+    const clientId = process.env.MLB_CLIENT_ID;
+    const clientSecret = process.env.MLB_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      return res.status(503).json({ error: 'MLB_CLIENT_ID / MLB_CLIENT_SECRET não configurados' });
+    }
+
+    // Step 1: pegar token
+    let token: string;
+    try {
+      const tokenResp = await axios.post(
+        'https://api.mercadolibre.com/oauth/token',
+        new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+      );
+      token = tokenResp.data.access_token;
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: unknown }; message?: string };
+      return res.status(500).json({ step: 'token', error: err?.message, status: err?.response?.status, data: err?.response?.data });
+    }
+
+    // Step 2: buscar imóveis
+    try {
+      const searchResp = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
+        params: { category: 'MLB1459', state_id: 'BR-PR', limit: 3, sort: 'date_desc' },
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+        timeout: 15000,
+      });
+      const results = searchResp.data?.results ?? [];
+      return res.json({
+        token_ok: true,
+        total_results: searchResp.data?.paging?.total ?? 0,
+        returned: results.length,
+        first_item: results[0] ?? null,
+        keys_in_item: results[0] ? Object.keys(results[0]) : [],
+        seller_address_keys: results[0]?.seller_address ? Object.keys(results[0].seller_address) : [],
+        sample_attributes: results[0]?.attributes?.slice(0, 5) ?? [],
+      });
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: unknown }; message?: string };
+      return res.status(500).json({ step: 'search', error: err?.message, status: err?.response?.status, data: err?.response?.data });
+    }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // Disparar scraping manual via Mercado Livre
 propertiesRouter.post('/scrape', async (req: AuthRequest, res) => {
   const {
