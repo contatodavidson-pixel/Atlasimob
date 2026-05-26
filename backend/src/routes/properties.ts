@@ -107,6 +107,14 @@ propertiesRouter.post('/scrape', async (req: AuthRequest, res) => {
     limit = 100,
   } = req.body;
 
+  // Verifica credenciais antes de disparar em background
+  if (!process.env.MLB_CLIENT_ID || !process.env.MLB_CLIENT_SECRET) {
+    return res.status(503).json({
+      error: 'Credenciais MLB não configuradas',
+      detail: 'Adicione MLB_CLIENT_ID e MLB_CLIENT_SECRET nas variáveis de ambiente do Railway. App gratuito em: https://developers.mercadolivre.com.br/pt_br/registre-seu-aplicativo',
+    });
+  }
+
   res.json({ message: `Scraping MLB iniciado para ${city}`, city, source: 'MERCADOLIVRE' });
 
   (async () => {
