@@ -1,0 +1,212 @@
+{
+  "name": "Atlas — Scraping Diário ZAP + VivaReal",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 7 * * *" }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Todo dia às 7h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "cities", "name": "cities", "value": "=[{\"city\":\"São Paulo\",\"state\":\"SP\"},{\"city\":\"Rio de Janeiro\",\"state\":\"RJ\"},{\"city\":\"Curitiba\",\"state\":\"PR\"},{\"city\":\"Belo Horizonte\",\"state\":\"MG\"},{\"city\":\"Goiânia\",\"state\":\"GO\"},{\"city\":\"Porto Alegre\",\"state\":\"RS\"},{\"city\":\"Florianópolis\",\"state\":\"SC\"},{\"city\":\"Fortaleza\",\"state\":\"CE\"},{\"city\":\"Recife\",\"state\":\"PE\"}]", "type": "array" }
+          ]
+        }
+      },
+      "id": "set-cities",
+      "name": "Definir Cidades",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "cities",
+        "options": {}
+      },
+      "id": "split-cities",
+      "name": "Split por Cidade",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://glue-api.zapimoveis.com.br/v2/listings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+            { "name": "Accept", "value": "application/json" },
+            { "name": "Accept-Language", "value": "pt-BR,pt;q=0.9" },
+            { "name": "X-Domain", "value": "www.zapimoveis.com.br" },
+            { "name": "Referer", "value": "https://www.zapimoveis.com.br/" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "portal", "value": "ZAP" },
+            { "name": "businessType", "value": "SALE" },
+            { "name": "listingType", "value": "USED" },
+            { "name": "addressCity", "value": "={{ $json.city }}" },
+            { "name": "addressState", "value": "={{ $json.state }}" },
+            { "name": "size", "value": "24" },
+            { "name": "from", "value": "0" },
+            { "name": "includeFields", "value": "search(result(listings(listing(description,title,id,businessType,address,usableAreas,parkingSpaces,bathrooms,bedrooms,pricingInfos,propertyType,externalId),medias,link)))" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "zap-request",
+      "name": "Buscar ZAP Imóveis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://glue-api.vivareal.com.br/v2/listings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+            { "name": "Accept", "value": "application/json" },
+            { "name": "Accept-Language", "value": "pt-BR,pt;q=0.9" },
+            { "name": "X-Domain", "value": "www.vivareal.com.br" },
+            { "name": "Referer", "value": "https://www.vivareal.com.br/" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "portal", "value": "VIVAREAL" },
+            { "name": "businessType", "value": "SALE" },
+            { "name": "listingType", "value": "USED" },
+            { "name": "addressCity", "value": "={{ $json.city }}" },
+            { "name": "addressState", "value": "={{ $json.state }}" },
+            { "name": "size", "value": "24" },
+            { "name": "from", "value": "0" },
+            { "name": "includeFields", "value": "search(result(listings(listing(description,title,id,businessType,address,usableAreas,parkingSpaces,bathrooms,bedrooms,pricingInfos,propertyType,externalId),medias,link)))" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "vivareal-request",
+      "name": "Buscar VivaReal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 420],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Juntar ZAP + VivaReal",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\n\nfor (const item of $input.all()) {\n  const body = item.json;\n  \n  // Extrai listings do ZAP/VivaReal\n  const listings = body?.search?.result?.listings ?? [];\n  const cityName = item.json.addressCity ?? '';\n  const stateName = item.json.addressState ?? '';\n  const isZap = item.json.portal === 'ZAP' || item.json._source === 'ZAP';\n  const prefix = isZap ? 'zap' : 'vr';\n  const baseUrl = isZap ? 'https://www.zapimoveis.com.br' : 'https://www.vivareal.com.br';\n  \n  for (const entry of listings) {\n    const listing = entry.listing ?? {};\n    const address = listing.address ?? {};\n    const pricingList = listing.pricingInfos ?? [];\n    const pricing = pricingList[0] ?? {};\n    const medias = entry.medias ?? [];\n    const link = entry.link ?? {};\n    \n    const bedroomsArr = listing.bedrooms ?? [];\n    const bathroomsArr = listing.bathrooms ?? [];\n    const areasArr = listing.usableAreas ?? [];\n    const propertyTypeArr = listing.propertyType ?? [];\n    \n    const price = Number(pricing.price ?? 0);\n    if (!price || price < 80000) continue;\n    \n    const neighborhood = address.neighborhood ?? '';\n    const city = address.city ?? cityName;\n    const state = address.state ?? stateName;\n    const street = address.street ?? '';\n    const fullAddress = [street, neighborhood, city, state].filter(Boolean).join(', ');\n    \n    const originalPrice = pricing.originalPrice ? Number(pricing.originalPrice) : null;\n    const priceReduced = !!(originalPrice && originalPrice > price);\n    \n    items.push({\n      json: {\n        externalId: `${prefix}_${listing.id ?? listing.externalId ?? Math.random().toString(36).slice(2)}`,\n        source: isZap ? 'ZAPIMOVEIS' : 'VIVAREAL',\n        title: String(listing.title ?? `${propertyTypeArr[0] ?? 'Imóvel'} em ${neighborhood || city}`),\n        address: fullAddress || city,\n        area: neighborhood || city,\n        city,\n        state,\n        price,\n        originalPrice,\n        bedrooms: Number(bedroomsArr[0] ?? 1),\n        bathrooms: bathroomsArr[0] != null ? Number(bathroomsArr[0]) : null,\n        propertyType: propertyTypeArr[0] ?? 'APARTMENT',\n        description: String(listing.description ?? ''),\n        imageUrls: medias.slice(0, 6).map(m => String(m.url ?? m.urlMedium ?? '')).filter(Boolean),\n        listingUrl: `${baseUrl}${String(link.href ?? '')}`,\n        priceReduced,\n        priceReducedBy: priceReduced && originalPrice ? originalPrice - price : null,\n      }\n    });\n  }\n}\n\nreturn items;"
+      },
+      "id": "transform-listings",
+      "name": "Transformar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 50,
+        "options": {}
+      },
+      "id": "batch-50",
+      "name": "Lotes de 50",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://atlasimob-production.up.railway.app/api/properties/webhook/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Webhook-Secret", "value": "={{ $env.ATLAS_WEBHOOK_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.all().map(i => i.json) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "post-atlas",
+      "name": "Enviar para Atlas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1740, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://atlasimob-production.up.railway.app/api/analysis/batch?limit=30",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.ATLAS_ADMIN_TOKEN }}" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "trigger-analysis",
+      "name": "Disparar Análise IA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1960, 300],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Todo dia às 7h": { "main": [[{ "node": "Definir Cidades", "type": "main", "index": 0 }]] },
+    "Definir Cidades": { "main": [[{ "node": "Split por Cidade", "type": "main", "index": 0 }]] },
+    "Split por Cidade": {
+      "main": [[
+        { "node": "Buscar ZAP Imóveis", "type": "main", "index": 0 },
+        { "node": "Buscar VivaReal", "type": "main", "index": 0 }
+      ]]
+    },
+    "Buscar ZAP Imóveis": { "main": [[{ "node": "Juntar ZAP + VivaReal", "type": "main", "index": 0 }]] },
+    "Buscar VivaReal":    { "main": [[{ "node": "Juntar ZAP + VivaReal", "type": "main", "index": 1 }]] },
+    "Juntar ZAP + VivaReal": { "main": [[{ "node": "Transformar Dados", "type": "main", "index": 0 }]] },
+    "Transformar Dados": { "main": [[{ "node": "Lotes de 50", "type": "main", "index": 0 }]] },
+    "Lotes de 50":       { "main": [[{ "node": "Enviar para Atlas", "type": "main", "index": 0 }]] },
+    "Enviar para Atlas": { "main": [[{ "node": "Disparar Análise IA", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [{ "name": "atlas-imob" }],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-26T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -8,6 +8,98 @@ import { notifier } from '../services/notifier';
 
 export const propertiesRouter = Router();
 
+// ── Webhook n8n — recebe imóveis do workflow de scraping ──────────────────
+// Autenticado por WEBHOOK_SECRET no header X-Webhook-Secret
+propertiesRouter.post('/webhook/ingest', async (req, res) => {
+  const secret = req.headers['x-webhook-secret'];
+  const expected = process.env.WEBHOOK_SECRET;
+
+  if (!expected) {
+    return res.status(503).json({ error: 'WEBHOOK_SECRET não configurado no servidor' });
+  }
+  if (secret !== expected) {
+    return res.status(401).json({ error: 'Secret inválido' });
+  }
+
+  const properties = Array.isArray(req.body) ? req.body : [req.body];
+  if (!properties.length) {
+    return res.status(400).json({ error: 'Nenhum imóvel recebido' });
+  }
+
+  let saved = 0;
+  let updated = 0;
+  const errors: string[] = [];
+
+  for (const prop of properties) {
+    try {
+      // Validação mínima
+      if (!prop.externalId || !prop.price || !prop.bedrooms) {
+        errors.push(`Imóvel inválido: ${JSON.stringify(prop).slice(0, 80)}`);
+        continue;
+      }
+
+      const existing = await prisma.property.findUnique({
+        where: { externalId: String(prop.externalId) },
+        select: { id: true, price: true },
+      });
+
+      const imageUrls = Array.isArray(prop.imageUrls)
+        ? JSON.stringify(prop.imageUrls)
+        : (typeof prop.imageUrls === 'string' ? prop.imageUrls : '[]');
+
+      await prisma.property.upsert({
+        where: { externalId: String(prop.externalId) },
+        update: {
+          price: Number(prop.price),
+          priceReduced: !!prop.priceReduced,
+          priceReducedBy: prop.priceReducedBy ? Number(prop.priceReducedBy) : null,
+          originalPrice: prop.originalPrice ? Number(prop.originalPrice) : null,
+          title: String(prop.title ?? ''),
+          description: prop.description ? String(prop.description) : null,
+          imageUrls,
+          updatedAt: new Date(),
+        },
+        create: {
+          externalId: String(prop.externalId),
+          source: String(prop.source ?? 'N8N'),
+          title: String(prop.title ?? 'Imóvel'),
+          address: String(prop.address ?? prop.area ?? ''),
+          area: String(prop.area ?? prop.city ?? ''),
+          price: Number(prop.price),
+          originalPrice: prop.originalPrice ? Number(prop.originalPrice) : null,
+          bedrooms: Number(prop.bedrooms ?? 1),
+          bathrooms: prop.bathrooms ? Number(prop.bathrooms) : null,
+          propertyType: String(prop.propertyType ?? 'APARTMENT'),
+          description: prop.description ? String(prop.description) : null,
+          imageUrls,
+          listingUrl: String(prop.listingUrl ?? ''),
+          priceReduced: !!prop.priceReduced,
+          priceReducedBy: prop.priceReducedBy ? Number(prop.priceReducedBy) : null,
+          analysisStatus: 'PENDING',
+        },
+      });
+
+      // Histórico de preço
+      if (!existing || existing.price !== Number(prop.price)) {
+        const record = await prisma.property.findUnique({ where: { externalId: String(prop.externalId) }, select: { id: true } });
+        if (record) {
+          await prisma.priceHistory.create({
+            data: { propertyId: record.id, price: Number(prop.price), source: String(prop.source ?? 'N8N') },
+          });
+        }
+      }
+
+      if (existing) updated++; else saved++;
+    } catch (err) {
+      errors.push(`Erro em ${prop.externalId}: ${String(err)}`);
+      logger.error('Webhook ingest error', err);
+    }
+  }
+
+  logger.info(`Webhook ingest: ${saved} novos, ${updated} atualizados, ${errors.length} erros`);
+  res.json({ saved, updated, errors: errors.slice(0, 10), total: properties.length });
+});
+
 // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
 
 // Deal do Dia — melhor STRONG_DEAL das últimas 48h (público)
