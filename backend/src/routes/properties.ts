@@ -120,27 +120,59 @@ propertiesRouter.post('/scrape/debug', async (req: AuthRequest, res) => {
       return res.status(500).json({ step: 'token', error: err?.message, status: err?.response?.status, data: err?.response?.data });
     }
 
-    // Step 2: buscar imóveis
+    const authH = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' };
+    const tests: Record<string, unknown> = { token_ok: true };
+
+    // Teste A: busca por keyword sem categoria
     try {
-      const searchResp = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
-        params: { category: 'MLB1459', state_id: 'BR-PR', limit: 3, sort: 'date_desc' },
-        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
-        timeout: 15000,
+      const r = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
+        params: { q: 'apartamento curitiba', limit: 2 },
+        headers: authH, timeout: 10000,
       });
-      const results = searchResp.data?.results ?? [];
-      return res.json({
-        token_ok: true,
-        total_results: searchResp.data?.paging?.total ?? 0,
-        returned: results.length,
-        first_item: results[0] ?? null,
-        keys_in_item: results[0] ? Object.keys(results[0]) : [],
-        seller_address_keys: results[0]?.seller_address ? Object.keys(results[0].seller_address) : [],
-        sample_attributes: results[0]?.attributes?.slice(0, 5) ?? [],
-      });
+      tests.A_keyword_search = { status: 200, total: r.data?.paging?.total, sample_title: r.data?.results?.[0]?.title };
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: unknown }; message?: string };
-      return res.status(500).json({ step: 'search', error: err?.message, status: err?.response?.status, data: err?.response?.data });
+      tests.A_keyword_search = { status: err?.response?.status, error: err?.message };
     }
+
+    // Teste B: categoria MLB1459 sem state_id
+    try {
+      const r = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
+        params: { category: 'MLB1459', limit: 2 },
+        headers: authH, timeout: 10000,
+      });
+      tests.B_category_no_state = { status: 200, total: r.data?.paging?.total, sample_title: r.data?.results?.[0]?.title };
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: unknown }; message?: string };
+      tests.B_category_no_state = { status: err?.response?.status, error: err?.message };
+    }
+
+    // Teste C: listar categorias do site
+    try {
+      const r = await axios.get('https://api.mercadolibre.com/sites/MLB/categories', {
+        headers: authH, timeout: 10000,
+      });
+      const cats = (r.data ?? []) as { id: string; name: string }[];
+      const imov = cats.find(c => c.name?.toLowerCase().includes('im'));
+      tests.C_categories = { total_categories: cats.length, imoveis_category: imov };
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: unknown }; message?: string };
+      tests.C_categories = { status: err?.response?.status, error: err?.message };
+    }
+
+    // Teste D: categoria MLB1459 com state_id (controle)
+    try {
+      const r = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
+        params: { category: 'MLB1459', state_id: 'BR-PR', limit: 2 },
+        headers: authH, timeout: 10000,
+      });
+      tests.D_category_with_state = { status: 200, total: r.data?.paging?.total };
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: unknown }; message?: string };
+      tests.D_category_with_state = { status: err?.response?.status, error: err?.message };
+    }
+
+    return res.json(tests);
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
