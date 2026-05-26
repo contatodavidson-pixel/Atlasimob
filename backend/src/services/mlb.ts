@@ -1,13 +1,48 @@
 /**
  * Mercado Livre Brasil — Real Estate Scraper
- * API oficial gratuita, sem necessidade de chave para dados públicos.
- * Documentação: https://developers.mercadolibre.com.br/pt_br/itens-e-buscas
+ * Usa OAuth2 Client Credentials (app gratuita em developers.mercadolivre.com.br).
+ * Documentação: https://developers.mercadolibre.com.br/pt_br/autenticacao-e-autorizacao
  */
 import axios from 'axios';
 import { logger } from '../lib/logger';
 import type { ScrapedProperty } from './apify';
 
 const BASE_URL = 'https://api.mercadolibre.com';
+
+// ─── OAuth2 token cache ───────────────────────────────────────────────────────
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getAccessToken(): Promise<string> {
+  // Retorna token em cache se ainda válido (margem de 5 min)
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 300_000) {
+    return cachedToken.token;
+  }
+
+  const clientId = process.env.MLB_CLIENT_ID;
+  const clientSecret = process.env.MLB_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new Error('MLB_CLIENT_ID e MLB_CLIENT_SECRET não configurados. Registre um app gratuito em developers.mercadolivre.com.br');
+  }
+
+  const { data } = await axios.post(
+    `${BASE_URL}/oauth/token`,
+    new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 }
+  );
+
+  cachedToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in ?? 21600) * 1000,
+  };
+
+  logger.info('MLB: token OAuth2 obtido com sucesso');
+  return cachedToken.token;
+}
 
 // Categorias de imóveis no MLB Brasil
 const CAT = {
@@ -142,10 +177,12 @@ export interface MLBFilters {
 }
 
 async function searchMLB(params: Record<string, string | number>): Promise<Record<string, unknown>[]> {
+  const token = await getAccessToken();
   const { data } = await axios.get(`${BASE_URL}/sites/MLB/search`, {
     params: { limit: 50, sort: 'date_desc', ...params },
     timeout: 20000,
     headers: {
+      'Authorization': `Bearer ${token}`,
       'Accept': 'application/json',
       'Accept-Language': 'pt-BR',
       'User-Agent': 'AtlasImob/1.0 (+https://atlasimob.app.br)',
@@ -234,9 +271,11 @@ export async function fetchMLBDetails(mlbId: string): Promise<{
   iptu?: number;
 } | null> {
   try {
+    const token = await getAccessToken();
+    const authHeaders = { headers: { 'Authorization': `Bearer ${token}` }, timeout: 10000 };
     const [itemResp, descResp] = await Promise.allSettled([
-      axios.get(`${BASE_URL}/items/${mlbId}`, { timeout: 10000 }),
-      axios.get(`${BASE_URL}/items/${mlbId}/description`, { timeout: 10000 }),
+      axios.get(`${BASE_URL}/items/${mlbId}`, authHeaders),
+      axios.get(`${BASE_URL}/items/${mlbId}/description`, authHeaders),
     ]);
 
     const item = itemResp.status === 'fulfilled' ? itemResp.value.data : null;
