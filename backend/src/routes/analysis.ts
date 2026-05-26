@@ -28,10 +28,13 @@ analysisRouter.post('/batch', async (req, res) => {
     for (const property of pending) {
       try {
         await prisma.property.update({ where: { id: property.id }, data: { analysisStatus: 'ANALYZING' } });
+        // Extract city from address for better analysis context
+        const cityFromAddress = property.address.split(',').slice(-2).join(',').trim();
         const analysis = await analyzeProperty({
           title: property.title,
           address: property.address,
           area: property.area,
+          city: cityFromAddress || property.area,
           price: property.price,
           bedrooms: property.bedrooms,
           bathrooms: property.bathrooms ?? undefined,
@@ -69,6 +72,41 @@ analysisRouter.post('/batch', async (req, res) => {
     }
     logger.info(`Batch concluído: ${success}/${pending.length} imóveis analisados`);
   })();
+});
+
+// Reset imóveis para re-análise (admin)
+analysisRouter.post('/reset', async (req, res) => {
+  const { ids, status } = req.body as { ids?: string[]; status?: string[] };
+  const statusFilter = status ?? ['COMPLETED', 'FAILED'];
+
+  const where = ids?.length
+    ? { id: { in: ids } }
+    : { analysisStatus: { in: statusFilter } };
+
+  const { count } = await prisma.property.updateMany({
+    where,
+    data: {
+      analysisStatus: 'PENDING',
+      tag: null,
+      score: null,
+      grossYield: null,
+      netYield: null,
+      cashflow: null,
+      roi: null,
+      estimatedRent: null,
+      managementFee: null,
+      maintenanceCost: null,
+      insuranceCost: null,
+      mortgagePayment: null,
+      motivatedSeller: false,
+      belowMarketPct: null,
+      liquidityIndex: null,
+      aiAnalysis: null,
+      aiSummary: null,
+    },
+  });
+
+  res.json({ message: `${count} imóveis resetados para PENDING`, count });
 });
 
 // Análise rápida de imóvel por URL ou dados manuais
